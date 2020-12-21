@@ -14,6 +14,17 @@ This works on windows only.
     - `d` to track instances where your mind wondered off
     - `q` to quite the current task
 
+# Install
+This is really dumb now.
+
+* First do this
+```pip install -r requirments.txt```
+
+* Then this
+```python timer.py -i```
+
+* Then run the `timer.py` file
+
 
 
 
