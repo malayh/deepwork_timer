@@ -9,12 +9,14 @@ import time
 from pynput import keyboard
 import sqlite3
 from win10toast import ToastNotifier
+import argparse
 
 """
 - Class depenedencies
     - DB -> Session
     - UI -> (Session, DB)
 """
+
 
 class Session:
     def __init__(self, objective: str, duration_s: int):
@@ -261,10 +263,20 @@ def test_db():
 def init_db():
     conn = sqlite3.connect("dwtimer.db")
     conn.cursor().executescript(open("init.sql","r").read())
-    conn.commit()
+
 
 if( __name__ == "__main__" ):
-    db = DB("./dwtimer.db")
-    UI(db).main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", help="Create schema in dwtimer.db file.", action="store_true")
+    args = parser.parse_args()
+    if args.i:
+        try:
+            init_db()
+        except sqlite3.OperationalError:
+            print("DB schema already created.")
 
-    # init_db()
+    else:
+        db = DB("dwtimer.db")
+        UI(db).main()
+        
+
