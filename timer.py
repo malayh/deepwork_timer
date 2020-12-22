@@ -10,12 +10,23 @@ from pynput import keyboard
 import sqlite3
 from win10toast import ToastNotifier
 import argparse
+import threading
+import pywintypes
 
 """
 - Class depenedencies
     - DB -> Session
     - UI -> (Session, DB)
 """
+
+
+# These are global hotkeys
+# Change this mapping according tou your taste.
+KEY_MAPPING = {
+    'pause/resume'     : '<ctrl>+<alt>+0',
+    'distract'  : '<ctrl>+<alt>+9',
+    'quit'      : '<ctrl>+<alt>+1'
+}
 
 
 class Session:
@@ -117,31 +128,70 @@ class DB:
 
 class UI:
     def __init__(self, db: DB):
+        self.notifier = ToastNotifier()
         self.db = db
         self.console = Console()
-        self.listener = keyboard.Listener(
-            on_press=self.on_press,
-            on_release=self.on_release
-        )
+        self.listener = keyboard.GlobalHotKeys({
+            KEY_MAPPING['pause/resume']    : self.on_pause_key,
+            KEY_MAPPING['distract']        : self.on_distract_key,
+            KEY_MAPPING['quit']            : self.on_quit_key
+        })
         self.listener.start()
         self.progess_bars = Progress(speed_estimate_period=5)
-
+        
 
         self.key_pressed = None
         self.current_task_id = None
-        self.objective = None
-        self.duration_m = None
-        self.current_session = None
+        self.objective : str = None
+        self.duration_m : int= None
+        self.current_session : Session = None
+        
+        self.is_paused = False
+        self.end_task = False
 
+    def nofity(self,msg:str) -> None:
+        # Non blocking notify
+        def _n(notifier : ToastNotifier, msg: str):
+            try:
+                notifier.show_toast(title="DeepWork Timer", msg=msg, duration=5,)
+            except:
+                pass            
+            while notifier.notification_active():
+                time.sleep(0.1)
 
-    def on_press(self,key):
-        try:
-            self.key_pressed = key.char.lower()
-        except AttributeError:
-            pass
+        threading.Thread(target=_n,args=(self.notifier,msg)).start()
 
-    def on_release(self,key):
-        pass
+    def on_pause_key(self):
+        # if no session is initilized, pause will not work
+        if not self.current_session:
+            return
+
+        # If already paused then resume
+        if self.is_paused:
+            self.console.clear()
+            self.console.print(Panel(f"[white]{self.objective}", style="green", title="Task Started"))
+            self.progess_bars.start()
+            self.current_session.end_pause()
+            self.is_paused = False
+            self.nofity("Task Resumed.")
+        else:
+            self.console.clear()
+            self.console.print(Panel(f"[white]{self.objective}",style="red", title="Task Paused"))
+            self.progess_bars.stop()
+            self.is_paused = True
+            self.current_session.start_pause()
+            self.nofity("Task Paused")
+
+    def on_distract_key(self):
+        if not self.current_session or self.is_paused:
+            return
+
+        self.current_session.register_distraction()
+        self.nofity("Distraction registerd.")
+        
+    def on_quit_key(self):
+        self.end_task = True
+        self.nofity("Task aborted.")
 
     def setup_event_loop(self) -> bool:
         wantRedo = False
@@ -174,68 +224,24 @@ class UI:
         self.current_session.end()
         self.db.write_session(self.current_session)
         if self.progess_bars.finished:
-            notifier = ToastNotifier()
-            notifier.show_toast("DeepWork Timer: Task Finised",self.objective,duration=5)
-            while notifier.notification_active():
-                time.sleep(0.1)
-
-
-    def event_loop(self):
-        command_panel = Panel("(p)ause / (d)istraction / (q)uite / (r)esume",title="Commands")
-        start_heading = Panel(f"[white]{self.objective}", style="green", title="Task")
-        pause_heading = Panel(f"Paused Task: {self.objective}",style="red")
-
-        self.console.print(RenderGroup(start_heading,command_panel))
-
-        isLoop = True
-        isPaused = False
-        while isLoop:
-            if self.key_pressed == 'q':
-                self.key_pressed = None
-                isLoop = False
-                continue
-
-            if self.key_pressed == 'p':
-                # pause the timer, and don't alter the key_pressed
-                self.console.clear()
-                self.console.print(RenderGroup(pause_heading,command_panel))
-                self.progess_bars.stop()
-                isPaused = True
-                self.key_pressed = None
-                self.current_session.start_pause()
-                continue
-
-            if self.key_pressed == 'r':
-                if isPaused:
-                    self.console.clear()
-                    self.console.print(RenderGroup(start_heading,command_panel))
-                    self.progess_bars.start()
-                    self.current_session.end_pause()
-
-                isPaused = False
-                self.key_pressed = None
-
-            if self.key_pressed == 'd':
-                self.current_session.register_distraction()
-                self.key_pressed = None
-
-            if isPaused:
-                time.sleep(0.1)
-                continue
-
-
-            if not self.progess_bars.finished:
-                time.sleep(1)
-                self.progess_bars.update(self.current_task_id,advance=1)
-            else:
-                isLoop = False
-                continue
+            self.nofity("Task Finished")
 
     def main(self):
-        while True:
-            if not self.setup_event_loop():
-                break            
-            self.event_loop()
+        while self.setup_event_loop():
+            self.console.print(Panel(f"[white]{self.objective}", style="green", title="Task Started"))
+
+            while not self.end_task:
+                if self.is_paused:
+                    time.sleep(0.1)
+                    continue
+                if not self.progess_bars.finished:
+                    time.sleep(1)
+                    self.progess_bars.update(self.current_task_id,advance=1)
+                else:
+                    self.end_task = True
+                    continue
+
+
             self.teardown_event_loop()
             
 
