@@ -1,17 +1,20 @@
-
 from rich import print
 from rich.console import RenderGroup
 from rich.panel import Panel
+from rich.padding import Padding
 from rich.prompt import Prompt, IntPrompt, Confirm
 from rich.progress import Progress
 from rich.console import Console
 import time
 from pynput import keyboard
 import sqlite3
-from win10toast import ToastNotifier
+from win10toast import ToastNotifier 
 import argparse
 import threading
 import pywintypes
+import os
+import ctypes
+from ctypes.wintypes import MAX_PATH
 
 """
 - Class depenedencies
@@ -19,14 +22,30 @@ import pywintypes
     - UI -> (Session, DB)
 """
 
+# retuns path to my document
+def get_my_documents() -> str:
+    dll = ctypes.windll.shell32
+    buf = ctypes.create_unicode_buffer(MAX_PATH + 1)
+    if dll.SHGetSpecialFolderPathW(None, buf, 0x0005, False):
+        return buf.value
+    
+    raise EnvironmentError("Cannot Find path to My Documents")
 
 # These are global hotkeys
 # Change this mapping according tou your taste.
 KEY_MAPPING = {
-    'pause/resume'     : '<ctrl>+<alt>+0',
-    'distract'  : '<ctrl>+<alt>+9',
-    'quit'      : '<ctrl>+<alt>+1'
+    'pause/resume'     : '<ctrl>+<alt>+p',
+    'distract'         : '<ctrl>+<alt>+<space>',
+    'quit'             : '<ctrl>+<alt>+`'
 }
+
+# home dir
+HOME_DIR = os.path.join(get_my_documents(),'DWTimer')
+#DB file
+DB_FILE = os.path.join(HOME_DIR,'dwtimer.db')
+
+# UI class directly reads this
+ICON_FILE = "ico_128.ico"
 
 
 class Session:
@@ -86,7 +105,6 @@ class Session:
         print(self.start_ts)
         print(self.end_ts)
 
-
 class DB:
     def __init__(self,path:str):
         self.conn = sqlite3.connect(path)
@@ -125,12 +143,11 @@ class DB:
         self.conn.commit()
         self.conn.close()
 
-
 class UI:
     def __init__(self, db: DB):
         self.notifier = ToastNotifier()
         self.db = db
-        self.console = Console()
+        self.console = Console(soft_wrap=True)
         self.listener = keyboard.GlobalHotKeys({
             KEY_MAPPING['pause/resume']    : self.on_pause_key,
             KEY_MAPPING['distract']        : self.on_distract_key,
@@ -153,9 +170,10 @@ class UI:
         # Non blocking notify
         def _n(notifier : ToastNotifier, msg: str):
             try:
-                notifier.show_toast(title="DeepWork Timer", msg=msg, duration=5,)
-            except:
-                pass            
+                notifier.show_toast(title="DeepWork Timer", msg=msg, duration=3,icon_path=ICON_FILE)
+            except Exception as e:
+                pass 
+
             while notifier.notification_active():
                 time.sleep(0.1)
 
@@ -169,14 +187,14 @@ class UI:
         # If already paused then resume
         if self.is_paused:
             self.console.clear()
-            self.console.print(Panel(f"[white]{self.objective}", style="green", title="Task Started"))
+            self.console.print(Panel(f"Working on: [white]{self.objective}", style="green"))
             self.progess_bars.start()
             self.current_session.end_pause()
             self.is_paused = False
             self.nofity("Task Resumed.")
         else:
             self.console.clear()
-            self.console.print(Panel(f"[white]{self.objective}",style="red", title="Task Paused"))
+            self.console.print(Panel(f"Paused: [white]{self.objective}",style="red"))
             self.progess_bars.stop()
             self.is_paused = True
             self.current_session.start_pause()
@@ -194,6 +212,9 @@ class UI:
         self.nofity("Task aborted.")
 
     def setup_event_loop(self) -> bool:
+        self.is_paused = False
+        self.end_task = False
+
         wantRedo = False
         if self.objective:
             wantRedo = Confirm.ask("Redo previous task?")
@@ -228,7 +249,7 @@ class UI:
 
     def main(self):
         while self.setup_event_loop():
-            self.console.print(Panel(f"[white]{self.objective}", style="green", title="Task Started"))
+            self.console.print(Panel(f"Working on: [white]{self.objective}", style="green"))
 
             while not self.end_task:
                 if self.is_paused:
@@ -244,6 +265,41 @@ class UI:
 
             self.teardown_event_loop()
             
+class Installer:
+    @staticmethod
+    def init_setup(home_dir :str, db_file: str):
+        if not os.path.isdir(home_dir):
+            os.mkdir(home_dir)
+        if not os.path.isfile(db_file):
+            Installer.init_db(db_file)
+
+    @staticmethod
+    def init_db(db_file):
+        schema = '''
+            create table tasks(
+                t_id integer primary key,
+                t_objective text not null,
+                t_duration_s text not null,
+                t_start_ts integer not null,
+                t_end_ts integer
+            );
+
+            create table distractions(
+                d_id integer primary key,
+                t_id integer not null,
+                d_ts integer not null
+            );
+
+            create table pauses(
+                p_id integer primary key,
+                t_id integer not null,
+                p_start_ts integer not null,
+                p_end_ts integer not null
+            );
+        '''
+        conn = sqlite3.connect(db_file)
+        conn.cursor().executescript(schema)
+        conn.close()
 
 
 def test_session() -> Session:
@@ -266,23 +322,8 @@ def test_db():
     session = test_session()
     db.write_session(session)
 
-def init_db():
-    conn = sqlite3.connect("dwtimer.db")
-    conn.cursor().executescript(open("init.sql","r").read())
-
 
 if( __name__ == "__main__" ):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-i", help="Create schema in dwtimer.db file.", action="store_true")
-    args = parser.parse_args()
-    if args.i:
-        try:
-            init_db()
-        except sqlite3.OperationalError:
-            print("DB schema already created.")
-
-    else:
-        db = DB("dwtimer.db")
-        UI(db).main()
-        
-
+    Installer.init_setup(HOME_DIR,DB_FILE)
+    db = DB(DB_FILE)
+    UI(db).main()

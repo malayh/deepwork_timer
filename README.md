@@ -1,4 +1,4 @@
-# Deepwork Timer
+# ![logo](ico_128.ico) Deepwork Timer
 Simple timer script to track effectiveness of my work sessions. Since I work primarily on a computer, this is a way I am experimenting with the idea of deep work. The idea is to log as much imformation as possible without disturbing the flow of work.
 
 This works on windows only.
@@ -12,9 +12,9 @@ This works on windows only.
 # Commands
 The following are global hot keys to control the timer
 
-- ```ctrl + alt + 0``` to pause/resume timer 
-- ```ctrl + alt + 9``` to register distraction
-- ```ctrl + alt + 1``` to stop timer 
+- ```ctrl + alt + p``` to pause/resume timer 
+- ```ctrl + alt + space``` to register distraction
+- ```ctrl + alt + ` ``` to stop timer 
 
 # Install
 This is really dumb now.
