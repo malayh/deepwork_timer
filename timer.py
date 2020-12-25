@@ -68,20 +68,12 @@ class Session:
 
         self.current_pause_start_ts = None
 
-    def end(self,ts = None) -> bool:
+    def end(self) -> bool:
         if self.end_ts:
             return False
 
-        if not ts:
-            self.end_ts = int(time.time())
-        else:
-            self.end_ts = ts
+        self.end_ts = self.current_pause_start_ts if self.current_pause_start_ts else int(time.time())
         return True
-
-    def is_paused(self):
-        if self.current_pause_start_ts:
-            return True
-        return False
 
     def register_distraction(self) -> bool:
         if self.current_pause_start_ts:
@@ -254,10 +246,7 @@ class UI:
 
     def teardown_event_loop(self):
         self.progess_bars.stop()
-
-        end_ts = self.current_session.current_pause_start_ts if self.current_session.is_paused() else None
-        self.current_session.end(ts=end_ts)
-
+        self.current_session.end()
         self.db.write_session(self.current_session)
         if self.progess_bars.finished:
             self.nofity("Task Finished")
