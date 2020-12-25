@@ -31,6 +31,10 @@ def get_my_documents() -> str:
     
     raise EnvironmentError("Cannot Find path to My Documents")
 
+
+# Change this to False for prod
+DEBUG = False
+
 # These are global hotkeys
 # Change this mapping according tou your taste.
 KEY_MAPPING = {
@@ -40,7 +44,7 @@ KEY_MAPPING = {
 }
 
 # home dir
-HOME_DIR = os.path.join(get_my_documents(),'DWTimer')
+HOME_DIR = "." if DEBUG else os.path.join(get_my_documents(),'DWTimer')
 #DB file
 DB_FILE = os.path.join(HOME_DIR,'dwtimer.db')
 
@@ -64,12 +68,20 @@ class Session:
 
         self.current_pause_start_ts = None
 
-    def end(self) -> bool:
+    def end(self,ts = None) -> bool:
         if self.end_ts:
             return False
-        
-        self.end_ts = int(time.time())
+
+        if not ts:
+            self.end_ts = int(time.time())
+        else:
+            self.end_ts = ts
         return True
+
+    def is_paused(self):
+        if self.current_pause_start_ts:
+            return True
+        return False
 
     def register_distraction(self) -> bool:
         if self.current_pause_start_ts:
@@ -242,7 +254,10 @@ class UI:
 
     def teardown_event_loop(self):
         self.progess_bars.stop()
-        self.current_session.end()
+
+        end_ts = self.current_session.current_pause_start_ts if self.current_session.is_paused() else None
+        self.current_session.end(ts=end_ts)
+
         self.db.write_session(self.current_session)
         if self.progess_bars.finished:
             self.nofity("Task Finished")
